@@ -69,7 +69,7 @@ public class BSealer implements InventoryHolder {
         if (inventoryHolderWorking) {
             Inventory inv = Bukkit.createInventory(this, InventoryType.DISPENSER, lang.getEntry("Etc_SealingTable"));
             // Inventory Holder (for DISPENSER, ...) is only passed in Paper, not in Spigot. Doing inventory.getHolder() will return null in spigot :/
-            if (PaperLib.getHolder(inv, true).getHolder() == this) {
+            if (inv.getHolder(false) == this) {
                 inventory = inv;
                 return;
             } else {

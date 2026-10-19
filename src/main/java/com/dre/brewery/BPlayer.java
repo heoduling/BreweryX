@@ -53,7 +53,6 @@ import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.util.Vector;
@@ -680,7 +679,6 @@ public class BPlayer {
         Item item = player.getWorld().dropItem(loc, new ItemStack(config.getPukeItem().get(new Random().nextInt(config.getPukeItem().size()))));
         item.setVelocity(direction);
         item.setPickupDelay(32767); // Item can never be picked up when pickup delay is 32767
-        item.setMetadata("brewery_puke", new FixedMetadataValue(BreweryPlugin.getInstance(), true));
         if (VERSION.isOrLater(MinecraftVersion.V1_14)) item.setPersistent(false); // No need to save Puke items
 
         int pukeDespawntime = config.getPukeDespawntime();
@@ -695,7 +693,7 @@ public class BPlayer {
             item.setTicksLived(despawnRate - 4);
         } else if (pukeDespawntime <= 120) {
             // it should despawn in less than 6 sec. Add up to half of that randomly
-            item.setTicksLived(despawnRate - pukeDespawntime + pukeRand.nextInt((int) (pukeDespawntime / 2F)));
+            item.setTicksLived(despawnRate - pukeDespawntime + pukeRand.nextInt(Math.max(1, pukeDespawntime / 2)));
         } else {
             // Add up to 5 sec randomly
             item.setTicksLived(despawnRate - pukeDespawntime + pukeRand.nextInt(100));

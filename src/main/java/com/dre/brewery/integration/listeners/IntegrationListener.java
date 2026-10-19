@@ -329,7 +329,7 @@ public class IntegrationListener implements Listener {
         if (!Hook.LOGBLOCK.isEnabled()) {
             return;
         }
-        if (PaperLib.getHolder(event.getInventory(), true).getHolder() instanceof Barrel) {
+        if (event.getInventory().getHolder(false) instanceof Barrel) {
             try {
                 LogBlockBarrel.closeBarrel(event.getPlayer(), event.getInventory());
             } catch (Exception e) {

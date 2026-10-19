@@ -39,11 +39,17 @@ plugins {
 }
 
 group = "com.dre.brewery"
-version = "3.7.1"
+version = "3.7.1-1"
 
 val langVersion: Int = 21
 val runTaskJavaVersion: Int = 25
 val encoding: String = "UTF-8"
+
+configurations.configureEach {
+    // Optional integrations must use the same server API as BreweryX.
+    exclude(group = "org.bukkit", module = "bukkit")
+    exclude(group = "org.spigotmc", module = "spigot-api")
+}
 
 repositories {
     mavenCentral()
@@ -65,8 +71,8 @@ repositories {
 }
 
 dependencies {
-    // Spigot
-    compileOnly("org.spigotmc:spigot-api:1.21.11-R0.1-SNAPSHOT") {
+    // Native no-snapshot inventory access on the target Folia/Paper API.
+    compileOnly("dev.folia:folia-api:1.21.11-R0.1-SNAPSHOT") {
         exclude("com.google.code.gson", "gson") // Implemented manually
     }
     // Paper Lib, performance improvements on Paper-based servers and async teleporting on Folia
