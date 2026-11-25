@@ -26,14 +26,17 @@ import com.dre.brewery.utility.MinecraftVersion;
 import com.github.Anon8281.universalScheduler.UniversalRunnable;
 import com.github.Anon8281.universalScheduler.scheduling.tasks.MyScheduledTask;
 import io.papermc.lib.PaperLib;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BrewingStand;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.BrewerInventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.PotionMeta;
+import org.bukkit.plugin.IllegalPluginAccessException;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -67,6 +70,7 @@ public class BDistiller {
 
     public void cancelDistill() {
         task.cancel(); // cancel prior
+        trackedDistillers.remove(standBlock, this);
     }
 
     public void start() {
@@ -87,9 +91,26 @@ public class BDistiller {
         final int fuel = standInv.getFuelLevel();
 
         // Now check if we should bother to track it.
-        distiller = new BDistiller(standBlock, fuel);
-        trackedDistillers.put(standBlock, distiller);
-        distiller.start();
+        track(new BDistiller(standBlock, fuel));
+    }
+
+    private static synchronized void track(BDistiller distiller) {
+        BreweryPlugin plugin = BreweryPlugin.getInstance();
+        if (!plugin.isEnabled()) return;
+        try {
+            distiller.start();
+        } catch (IllegalPluginAccessException ex) {
+            if (plugin.isEnabled()) throw ex;
+            return;
+        }
+        trackedDistillers.put(distiller.standBlock, distiller);
+    }
+
+    static synchronized void stopAllTrackedDistillers() {
+        for (BDistiller distiller : trackedDistillers.values()) {
+            distiller.task.cancel();
+        }
+        trackedDistillers.clear();
     }
 
     public static boolean isTrackingDistiller(Block block) {
@@ -194,44 +215,95 @@ public class BDistiller {
 
     public class DistillRunnable extends UniversalRunnable {
         private Brew[] contents = null;
+        private boolean loadingForBoundary;
 
         @Override
         public void run() {
+            if (!isCurrent() || !BreweryPlugin.getInstance().isEnabled()) return;
             Location standLocation = standBlock.getLocation();
-            BreweryPlugin.getScheduler().runTask(standLocation, () -> {
-                if (!standLocation.getWorld().isChunkLoaded(standLocation.getChunk())) {
-                    return;
-                }
-                if (standBlock.getType() != Material.BREWING_STAND) {
-                    this.cancel();
-                    trackedDistillers.remove(standBlock);
-                    Logging.debugLog("The block was replaced; not a brewing stand.");
-                    return;
-                }
-                BrewingStand stand = (BrewingStand) PaperLib.getBlockState(standBlock, false).getState();
-                if (brewTime == -1 && !prepareForDistillables(stand)) { // check at the beginning for distillables
-                    return;
-                }
+            BreweryPlugin.getScheduler().runTask(standLocation, () -> tickAtStand(standLocation));
+        }
 
-                brewTime--; // count down.
-                if (brewTime > 1) {
-                    stand.setBrewingTime((int) ((float) brewTime / ((float) runTime / (float) DISTILLTIME)) + 1);
-                    stand.update();
+        private boolean isCurrent() {
+            return trackedDistillers.get(standBlock) == BDistiller.this;
+        }
+
+        private void tickAtStand(Location location) {
+            if (!isCurrent() || loadingForBoundary) return;
+            World world = standBlock.getWorld();
+            if (MinecraftVersion.isFolia()) {
+                int chunkX = standBlock.getX() >> 4;
+                int chunkZ = standBlock.getZ() >> 4;
+                if (!world.isChunkLoaded(chunkX, chunkZ)) {
+                    if (brewTime > 2) {
+                        // The progress bar has no viewers while the chunk is unloaded.
+                        brewTime--;
+                    } else {
+                        loadForBoundary(location, world, chunkX, chunkZ);
+                    }
                     return;
                 }
+            } else if (!world.isChunkLoaded(location.getChunk())) {
+                return;
+            }
+            tickLoaded();
+        }
 
-                contents = getDistillContents(stand.getInventory()); // Get the contents again at the end just in case
-                stand.setBrewingTime(0);
-                stand.update();
-                if (!runDistill(stand.getInventory(), contents)) {
-                    this.cancel();
-                    trackedDistillers.remove(standBlock);
-                    Logging.debugLog("All done distilling");
-                } else {
-                    brewTime = -1; // go again.
-                    Logging.debugLog("Can distill more! Continuing.");
+        private void loadForBoundary(Location location, World world, int chunkX, int chunkZ) {
+            loadingForBoundary = true;
+            world.getChunkAtAsync(chunkX, chunkZ, false).whenComplete((chunk, error) -> {
+                if (!isCurrent()) return;
+                Runnable finishLoad = () -> {
+                    if (!isCurrent()) return;
+                    loadingForBoundary = false;
+                    if (error != null || chunk == null) {
+                        if (error != null) BreweryPlugin.getInstance().getLogger().log(
+                            java.util.logging.Level.WARNING, "Could not load distillery at " + location, error);
+                        cancelDistill();
+                    } else if (world.isChunkLoaded(chunkX, chunkZ)) {
+                        tickLoaded();
+                    }
+                };
+                if (Bukkit.isOwnedByCurrentRegion(location)) {
+                    finishLoad.run();
+                } else if (BreweryPlugin.getInstance().isEnabled()) {
+                    BreweryPlugin.getScheduler().runTask(location, finishLoad);
                 }
             });
+        }
+
+        private void tickLoaded() {
+            if (standBlock.getType() != Material.BREWING_STAND) {
+                cancelDistill();
+                Logging.debugLog("The block was replaced; not a brewing stand.");
+                return;
+            }
+            // Only countdown ticks write directly to the stand. Preparation and
+            // completion keep the existing snapshot and update order.
+            BrewingStand stand = brewTime > 2
+                ? (BrewingStand) standBlock.getState(false)
+                : (BrewingStand) PaperLib.getBlockState(standBlock, false).getState();
+            if (brewTime == -1 && !prepareForDistillables(stand)) {
+                return;
+            }
+
+            brewTime--;
+            if (brewTime > 1) {
+                stand.setBrewingTime((int) ((float) brewTime / ((float) runTime / (float) DISTILLTIME)) + 1);
+                stand.update();
+                return;
+            }
+
+            contents = getDistillContents(stand.getInventory());
+            stand.setBrewingTime(0);
+            stand.update();
+            if (!runDistill(stand.getInventory(), contents)) {
+                cancelDistill();
+                Logging.debugLog("All done distilling");
+            } else {
+                brewTime = -1;
+                Logging.debugLog("Can distill more! Continuing.");
+            }
         }
 
         private boolean prepareForDistillables(BrewingStand stand) {
@@ -260,8 +332,7 @@ public class BDistiller {
                     }
                 case 0:
                     // No custom potion, cancel and ignore
-                    this.cancel();
-                    trackedDistillers.remove(standBlock);
+                    cancelDistill();
                     showAlc(inventory, contents);
                     Logging.debugLog("nothing to distill");
                     return false;

@@ -56,9 +56,13 @@ public enum BarrelAsset {
             return false;
         }
 
-        return barrelAssetListMap.values().stream()
-            .map((b) -> b.getOrDefault(assetType, Set.of()))
-            .anyMatch((materialSet) -> materialSet.contains(material));
+        for (Map<BarrelAsset, Set<Material>> assets : barrelAssetListMap.values()) {
+            Set<Material> materials = assets.get(assetType);
+            if (materials != null && materials.contains(material)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static Set<Material> getMaterialsOf(BarrelWoodType type) {

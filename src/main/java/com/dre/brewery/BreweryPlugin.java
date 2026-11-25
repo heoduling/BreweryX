@@ -276,6 +276,7 @@ public final class BreweryPlugin extends JavaPlugin {
         BCauldron.stopAllFoliaParticleTasks();
 
         // Stop schedulers
+        BDistiller.stopAllTrackedDistillers();
         BreweryPlugin.getScheduler().cancelTasks(this);
 
         // save Data to Disk

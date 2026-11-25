@@ -39,7 +39,7 @@ plugins {
 }
 
 group = "com.dre.brewery"
-version = "3.7.1-1"
+version = "3.7.1-4"
 
 val langVersion: Int = 21
 val runTaskJavaVersion: Int = 25
